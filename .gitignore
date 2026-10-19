@@ -1,0 +1,23 @@
+# Credenciais e ambiente local
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+credentials*.json
+token*.json
+*.pem
+*.key
+# Dados operacionais e transcrições
+*.json
+*.json.*
+*.log*
+auditoria*/
+migracao*/
+outputs/
+transcricoes/
+# Dependências e caches
+node_modules/
+__pycache__/
+*.py[cod]
+.DS_Store
