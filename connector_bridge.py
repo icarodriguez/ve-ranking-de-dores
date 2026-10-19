@@ -6,7 +6,7 @@ import argparse
 import json
 import logging
 from pathlib import Path
-from automacao import BASE, Conflict, State, lock, make_plan, padded, parse_extraction
+from automacao import BASE, Conflict, State, cell_update_requests, lock, make_plan, padded, parse_extraction
 
 
 def execute(action, payload, state):
@@ -62,13 +62,7 @@ def execute(action, payload, state):
         raise Conflict('Gravação não confirmada pelo Google Sheets.')
     if any(current[c] != plan['before'][c] for c in columns):
         raise Conflict('Conteúdo alterado. Não sobrescrever nem recalcular o incremento.')
-    requests = []
-    for c in columns:
-        value = plan['after'][c]
-        typed = {'numberValue': value} if isinstance(value, (int, float)) else {'stringValue': value}
-        requests.append({'updateCells': {'start': {'sheetId': plan['sheet_id'],
-            'rowIndex': plan['row'] - 1, 'columnIndex': c},
-            'rows': [{'values': [{'userEnteredValue': typed}]}], 'fields': 'userEnteredValue'}})
+    requests = cell_update_requests(plan, plan['sheet_id'])
     return {'status': 'write_required', 'spreadsheet_id': plan['spreadsheet'], 'requests': requests}
 
 

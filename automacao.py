@@ -195,6 +195,20 @@ def make_plan(file_id, data, spreadsheet, tab, rows):
                 row=row_number, before=before, after=after, columns=columns)
 
 
+def cell_update_requests(plan, sheet_id):
+    """Atualizações absolutas e tipadas, compartilhadas pelos dois modos."""
+    requests = []
+    for column in plan['columns']:
+        value = plan['after'][column]
+        typed = {'numberValue': value} if isinstance(value, (int, float)) else {'stringValue': value}
+        requests.append({'updateCells': {
+            'start': {'sheetId': sheet_id, 'rowIndex': plan['row'] - 1, 'columnIndex': column},
+            'rows': [{'values': [{'userEnteredValue': typed}]}],
+            'fields': 'userEnteredValue',
+        }})
+    return requests
+
+
 def recover(state, sheets):
     plan = state.data['pending']
     if not plan:
@@ -252,13 +266,7 @@ class GoogleSheets:
         # updateCells com valores tipados protege texto que começa com '='.
         props = next(s['properties'] for s in self.metadata(plan['spreadsheet'])
                      if s['properties']['title'] == plan['tab'])
-        requests = []
-        for col in plan['columns']:
-            value = plan['after'][col]
-            cell = {'numberValue': value} if isinstance(value, (int, float)) else {'stringValue': value}
-            requests.append({'updateCells': {'start': {'sheetId': props['sheetId'],
-                'rowIndex': plan['row'] - 1, 'columnIndex': col},
-                'rows': [{'values': [{'userEnteredValue': cell}]}], 'fields': 'userEnteredValue'}})
+        requests = cell_update_requests(plan, props['sheetId'])
         retry(lambda: self.api.batchUpdate(spreadsheetId=plan['spreadsheet'],
                                            body={'requests': requests}).execute())
 
@@ -290,39 +298,6 @@ class GoogleSheets:
                      valueRenderOption='FORMATTED_VALUE').execute()).get('values', [])
         if value and str(value[0][0]).startswith(('#ERROR!', '#REF!', '#NAME?')):
             raise Conflict('Erro na fórmula Top 10. Verifique a localidade da planilha.')
-
-
-class Drive:
-    def __init__(self, service, folder, max_chars):
-        self.files = service.files()
-        self.folder, self.max_chars = folder, max_chars
-
-    def transcripts(self):
-        page = None
-        while True:
-            result = retry(lambda: self.files.list(q=f"'{self.folder}' in parents and trashed = false",
-                fields='nextPageToken,files(id,name,mimeType)', pageSize=100,
-                pageToken=page, orderBy='createdTime,name', supportsAllDrives=True,
-                includeItemsFromAllDrives=True).execute())
-            for file in result.get('files', []):
-                if (file['mimeType'] == 'application/vnd.google-apps.document'
-                        or Path(file['name']).suffix.lower() in ('.txt', '.srt', '.vtt')):
-                    yield file
-                else:
-                    LOG.info('ignorado_formato id=%s mime=%s', file['id'], file['mimeType'])
-            page = result.get('nextPageToken')
-            if not page:
-                break
-
-    def text(self, file):
-        if file['mimeType'] == 'application/vnd.google-apps.document':
-            raw = retry(lambda: self.files.export(fileId=file['id'], mimeType='text/plain').execute())
-        else:
-            raw = retry(lambda: self.files.get_media(fileId=file['id'], supportsAllDrives=True).execute())
-        text = raw.decode('utf-8-sig') if isinstance(raw, bytes) else raw
-        if not text.strip() or len(text) > self.max_chars:
-            raise InvalidExtraction('Transcrição vazia ou acima do limite; não truncada.')
-        return text
 
 
 class Extractor:
